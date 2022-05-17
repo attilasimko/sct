@@ -1,5 +1,4 @@
 from __future__ import print_function
-from comet_ml import Experiment
 import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3' # Code suppressing TF warnings and messages.
 import numpy as np
@@ -31,11 +30,9 @@ from tensorflow import io
 from tensorflow.python.tools import freeze_graph
 from tensorflow.python.framework.convert_to_constants import convert_variables_to_constants_v2
 import sys
-sys.path.append("../")
-import MLTK
-from MLTK.synthetic_ct.models import build_discriminator, build_srresnet, build_unet
-from MLTK.synthetic_ct.utils import get_patients, custom_loss
-from MLTK.data import DataGenerator
+from models import build_discriminator, build_srresnet, build_unet
+from utils import get_patients, custom_loss
+from data import DataGenerator
 pid = os.getpid()
 random.seed(2021)
 seed(2021)
@@ -65,39 +62,10 @@ alpha = float(args.alpha)
 case = int(args.case)
 batch_size = int(args.batch_size)
 
-data_path = '/mnt/4a39cb60-7f1f-4651-81cb-029245d590eb/DS0058/'
-out_path = '/home/attilasimko/Documents/out/'
-if gpu is not None:
-    base = 'gauss'
-    os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-    # The GPU id to use, usually either "0" or "1";
-    os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu)
-    data_path = '/home/attila/data/DS0058/'
-    out_path = '/home/attila/out/'
-else:
-    physical_devices = tensorflow.config.list_physical_devices('GPU')
-    tensorflow.config.set_visible_devices(physical_devices[0], 'GPU')
-
-# dev = tensorflow.config.list_physical_devices("GPU")
-# print(dev)
-# tensorflow.config.experimental.set_memory_growth(dev[1], True)
+data_path = "" # Path to dataset
 
 
 
-if comet is not None:
-    experiment = Experiment(api_key="ro9UfCMFS2O73enclmXbXfJJj",
-                            project_name=str(comet),
-                            workspace="attilasimko")
-    experiment.log_parameters({"gpu":gpu,
-                            "lr_dis":lr_dis,
-                            "lr_gan":lr_gan,
-                            "pid":pid,
-                            "batch_size":batch_size,
-                            "num_filters":num_filters,
-                            "num_res_block":num_res_block,
-                            "batchnorm":batchnorm})
-else:
-    experiment = False
 
 gen_train = DataGenerator(data_path + 'training_' + str(case),
                     inputs=[['mr', False, 'float32']],
@@ -136,40 +104,11 @@ gen_test_t1w = DataGenerator(data_path + 'testing_t1w',
                     shuffle=False)
 
 generator = build_srresnet(num_filters=num_filters, batchnorm=batchnorm)
-# generator = build_densenet(num_filters=6, num_blocks=4, num_layers_per_block=5, growth_rate=0, dropout_rate=0.2, compress_factor=1)
 generator.compile(optimizer=optimizers.Adam(lr_gan), loss=["mse"], run_eagerly=True)
-# generator.load_weights('weights/init.h5')  
-# discriminator = build_discriminator(64, 512, 512, 1)  
-# discriminator.compile(loss=["mse"], metrics=["accuracy"], optimizer=optimizers.Adam(lr_dis), run_eagerly=True)#, run_eagerly=True)
 
-# print('Generator with # params: ' + str(generator.count_params()))
-# print('Discriminator with # params: ' + str(discriminator.count_params())) 
-
-
-# GAN
-# img_in = Input(shape=(512, 512, 1), batch_size=batch_size)
-# discriminator.trainable = False
-# for layer in discriminator.layers:
-#     layer.trainable = False
-# pred_mt = generator(img_in)
-# pred_d = discriminator(pred_mt)
-# GAN = Model(inputs=img_in, outputs=[pred_d, pred_mt])
-# losses = {
-#     "model_1": "mse", # GAN
-#     "model": "mse" # PAIRED
-# }
-# GAN.compile(optimizer=optimizers.Adam(lr_gan), loss=losses, metrics=['accuracy'], loss_weights=[alpha, 1], run_eagerly=True) # binary_crossentropy
-# generator.save_weights('init_w')
-experiment.log_parameters({ "gen_param": generator.count_params(),
-                            #"dis_param": discriminator.count_params(),
-                            "lr_dis": lr_dis,
-                            "lr_gan": lr_gan,
-                            "case":case})
 patience_thr = 50
 overall = []
 
-# real_label = np.ones((batch_size, 16, 16, 1))
-# fake_label = np.zeros((batch_size, 16, 16, 1))
 real_label = np.ones((batch_size, 1))
 fake_label = np.zeros((batch_size, 1))
 
@@ -184,12 +123,10 @@ training_patients = get_patients(gen_train)
 
 for epoch in range(n_epochs):
     tensorflow.keras.backend.clear_session()
-    experiment.set_epoch(epoch)
 
     MAE_training = []
     MAE_testing = []
 
-    # K-fold training
     d_loss_list = []
     gan_loss_list = []
     d_mri_loss_list = []
@@ -199,10 +136,7 @@ for epoch in range(n_epochs):
     for idx in range(len(gen_train)):
         x_mri, x_ct = gen_train[idx]
 
-        #if (go_gan):
         pred = generator.predict_on_batch(x_mri[0])
-        # d_loss = discriminator.train_on_batch(np.concatenate((pred, x_ct[0])), np.concatenate((fake_label, real_label)))
-        # d_loss_list.append(d_loss[0])
 
         gan_loss = generator.train_on_batch(x_mri[0], x_ct[0])
         gan_loss_list.append(gan_loss)
@@ -212,22 +146,11 @@ for epoch in range(n_epochs):
         x_mri, x_ct = gen_val[idx]
 
         pred = generator.predict_on_batch(x_mri[0])
-        # d_mri_loss = discriminator.test_on_batch(pred, fake_label[0:1])
-        # d_mri_loss_list.append(d_mri_loss[1])
-
-        # d_ct_loss = discriminator.test_on_batch(x_ct[0], real_label[0:1])
-        # d_ct_loss_list.append(d_ct_loss[1])
 
         ct_loss_list.append(np.average(np.abs(pred - x_ct[0])))
         ct_masked_loss_list.append(np.average(np.abs(pred - x_ct[0]), weights=x_ct[0] > -1))
     gen_val.on_epoch_end()
 
-    experiment.log_metrics({"d_loss":np.round(np.mean(d_loss_list), 10),
-                            "gan_loss":np.round(np.mean(gan_loss_list), 10),
-                            "acc_fake":np.round(np.mean(d_mri_loss_list), 10),
-                            "acc_real":np.round(np.mean(d_ct_loss_list), 10),
-                            "ct_loss":np.round(np.mean(ct_loss_list), 10),
-                            "ct_masked_loss":np.round(np.mean(ct_masked_loss_list), 10)})
 
     if (best_loss > (np.mean(ct_masked_loss_list))):
         patience = 0
@@ -297,7 +220,6 @@ for epoch in range(n_epochs):
             plt.imshow(ct_data[15, :, :, 0], vmin=-1, vmax=1, cmap='gray')
             plt.xticks([])
             plt.yticks([])
-            experiment.log_figure(figure=plt, figure_name=patient, overwrite=True, step=epoch)
             plt.close('all')
 
         generator.save_weights(str(out_path) + str(pid) + '.h5')
@@ -308,7 +230,7 @@ for epoch in range(n_epochs):
         frozen_func.graph.as_graph_def()
         io.write_graph(graph_or_graph_def=frozen_func.graph,
                         logdir=out_path,
-                        name=f'{pid}_MICE_version.pb',
+                        name=f'{pid}_frozen.pb',
                         as_text=False)
     else:
         patience += 1
@@ -388,5 +310,3 @@ print("\nT1W:")
 print(str(np.round(np.nanmean(a_list), 5)) + " +- " + str(np.round(np.nanstd(a_list) / np.sqrt(len(a_list)), 10)))
 print(str(np.round(np.nanmean(st_list), 5)) + " +- " + str(np.round(np.nanstd(st_list) / np.sqrt(len(st_list)), 10)))
 print(str(np.round(np.nanmean(b_list), 5)) + " +- " + str(np.round(np.nanstd(b_list) / np.sqrt(len(b_list)), 10)))
-
-experiment.end()

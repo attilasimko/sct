@@ -1,6 +1,5 @@
 from __future__ import print_function
 import os
-
 from sympy import re
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3' # Code suppressing TF warnings and messages.
 import numpy as np
@@ -32,11 +31,9 @@ from tensorflow import io
 from tensorflow.python.tools import freeze_graph
 from tensorflow.python.framework.convert_to_constants import convert_variables_to_constants_v2
 import sys
-sys.path.append("../")
-import MLTK
-from MLTK.synthetic_ct.models import build_discriminator, build_srresnet, build_unet
-from MLTK.synthetic_ct.utils import get_patients, custom_loss
-from MLTK.data import DataGenerator
+from models import build_discriminator, build_srresnet, build_unet
+from utils import get_patients, custom_loss
+from data import DataGenerator
 pid = os.getpid()
 random.seed(2021)
 seed(2021)
@@ -66,22 +63,7 @@ alpha = float(args.alpha)
 case = int(args.case)
 batch_size = int(args.batch_size)
 
-data_path = '/mnt/4a39cb60-7f1f-4651-81cb-029245d590eb/DS0058/'
-out_path = '/home/attilasimko/Documents/out/'
-if gpu is not None:
-    base = 'gauss'
-    os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-    # The GPU id to use, usually either "0" or "1";
-    os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu)
-    data_path = '/home/attila/data/DS0058/'
-    out_path = '/home/attila/out/'
-else:
-    physical_devices = tensorflow.config.list_physical_devices('GPU')
-    tensorflow.config.set_visible_devices(physical_devices[0], 'GPU')
-
-# dev = tensorflow.config.list_physical_devices("GPU")
-# print(dev)
-# tensorflow.config.experimental.set_memory_growth(dev[1], True)
+data_path = "" # Path to dataset
 
 
 
@@ -123,11 +105,9 @@ gen_test_t1w = DataGenerator(data_path + 'testing_t1w',
                     shuffle=False)
 
 generator = build_srresnet(num_filters=num_filters, batchnorm=batchnorm)
-# generator = build_densenet(num_filters=6, num_blocks=4, num_layers_per_block=5, growth_rate=0, dropout_rate=0.2, compress_factor=1)
 generator.compile(optimizer=optimizers.Adam(0.001), loss=["mse"], run_eagerly=True)
-# generator.load_weights('weights/init.h5')  
 discriminator = build_discriminator(64, 512, 512, 1)  
-discriminator.compile(loss=["mse"], metrics=["accuracy"], optimizer=optimizers.Adam(lr_dis), run_eagerly=True)#, run_eagerly=True)
+discriminator.compile(loss=["mse"], metrics=["accuracy"], optimizer=optimizers.Adam(lr_dis), run_eagerly=True)
 
 
 # GAN
@@ -143,12 +123,9 @@ losses = {
     "model": "mse" # PAIRED
 }
 GAN.compile(optimizer=optimizers.Adam(lr_gan), loss=losses, metrics=['accuracy'], loss_weights=[alpha, 1], run_eagerly=True) # binary_crossentropy
-# generator.save_weights('init_w')
 patience_thr = 20
 overall = []
 
-# real_label = np.ones((batch_size, 16, 16, 1))
-# fake_label = np.zeros((batch_size, 16, 16, 1))
 real_label = np.ones((batch_size, 1))
 fake_label = np.zeros((batch_size, 1))
 
@@ -161,14 +138,7 @@ ct_thr = 0
 validation_patients = get_patients(gen_val)
 training_patients = get_patients(gen_train)
 
-models = ["/home/attilasimko/Documents/server_out/SCT/1474279.h5",
-          "/home/attilasimko/Documents/server_out/SCT/1478511.h5",
-          "/home/attilasimko/Documents/server_out/SCT/2424974.h5",
-          "/home/attilasimko/Documents/server_out/SCT/3406834.h5",
-          "/home/attilasimko/Documents/server_out/SCT/2026517.h5",
-          "/home/attilasimko/Documents/server_out/SCT/2026674.h5",
-          "/home/attilasimko/Documents/server_out/SCT/16163.h5",
-          "/home/attilasimko/Documents/server_out/SCT/2026921.h5"]
+models = [] # List of paths to the pre-trained .h5 files.
 
 def test_gen(gen):
     a_list = []
